@@ -445,6 +445,10 @@ class SenderThread(threading.Thread):
         self.http_api_path = http_api_path
         self.http_username = http_username
         self.http_password = http_password
+        self.alauda_endpoint = os.getenv("ALAUDA_ENDPOINT", "https://api.alauda.cn/")
+        self.alauda_token = os.getenv("ALAUDA_TOKEN", None)
+        if self.alauda_token:
+            self.http = True
         self.ssl = ssl
         self.hosts = hosts  # A list of (host, port) pairs.
         # Randomize hosts to help even out the load.
@@ -727,6 +731,10 @@ class SenderThread(threading.Thread):
         # the packets out of the kernel's queue
 
     def build_http_url(self):
+        # if alauda token has been set, will post to alauda.
+        if self.alauda_token:
+            return "%s/v2/monitor/metrics/put" % self.alauda_endpoint
+
         if self.ssl:
             protocol = "https"
         else:
@@ -754,7 +762,10 @@ class SenderThread(threading.Thread):
                 (tag_key, tag_value) = tag.split("=", 1)
                 metric_tags[tag_key] = tag_value
             metric_entry = {}
-            metric_entry["metric"] = metric
+            if self.alauda_token:
+                metric_entry["metric_name"] = metric
+            else:
+                metric_entry["metric"] = metric
             metric_entry["timestamp"] = long(timestamp)
             metric_entry["value"] = float(value)
             metric_entry["tags"] = dict(self.tags).copy()
@@ -782,6 +793,9 @@ class SenderThread(threading.Thread):
         if self.http_username and self.http_password:
           req.add_header("Authorization", "Basic %s"
                          % base64.b64encode("%s:%s" % (self.http_username, self.http_password)))
+        elif self.alauda_token:
+          req.add_header("Authorization", "Token %s" % self.alauda_token)
+
         req.add_header("Content-Type", "application/json")
         try:
             response = urllib2.urlopen(req, json.dumps(metrics))
